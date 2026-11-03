@@ -1,0 +1,121 @@
+# Kampung Adem: full stack on one VPS (design doc 4.3, 16).
+#   cp infra/.env.example infra/.env   # fill in secrets
+#   docker compose -f infra/docker-compose.yml up -d --build
+#   docker compose -f infra/docker-compose.yml run --rm api alembic upgrade head
+
+name: kampungadem
+
+x-backend: &backend
+  build: ../backend
+  env_file: .env
+  environment:
+    DATABASE_URL: postgresql+psycopg://kampungadem:${POSTGRES_PASSWORD}@db:5432/kampungadem
+    REDIS_URL: redis://redis:6379/1
+    MQTT_HOST: mosquitto
+    SATELLITE_DIR: /satellite
+  volumes:
+    - ../satellite:/satellite:ro
+    - ./secrets:/secrets:ro
+  depends_on:
+    db:
+      condition: service_healthy
+  restart: unless-stopped
+
+services:
+  db:
+    image: timescale/timescaledb-ha:pg17
+    environment:
+      POSTGRES_USER: kampungadem
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: kampungadem
+      CHIRPSTACK_DB_PASSWORD: ${CHIRPSTACK_DB_PASSWORD}
+    volumes:
+      - pgdata:/home/postgres/pgdata/data
+      - ./postgres/init-chirpstack.sh:/docker-entrypoint-initdb.d/10-chirpstack.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U kampungadem"]
+      interval: 10s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "300", "1"]
+    volumes:
+      - redisdata:/data
+    restart: unless-stopped
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/passwd:/mosquitto/config/passwd:ro
+      - ./mosquitto/certs:/mosquitto/certs:ro
+    ports:
+      - "8883:8883"  # gateways, MQTT over TLS (ChirpStack MQTT forwarder)
+    restart: unless-stopped
+
+  chirpstack:
+    image: chirpstack/chirpstack:4
+    command: -c /etc/chirpstack
+    env_file: .env
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./chirpstack:/etc/chirpstack:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      mosquitto:
+        condition: service_started
+    restart: unless-stopped
+
+  # Only needed for gateways using the Semtech UDP packet forwarder instead of MQTT forwarder.
+  chirpstack-gateway-bridge:
+    image: chirpstack/chirpstack-gateway-bridge:4
+    profiles: ["udp"]
+    environment:
+      INTEGRATION__MQTT__EVENT_TOPIC_TEMPLATE: as923_2/gateway/{{ .GatewayID }}/event/{{ .EventType }}
+      INTEGRATION__MQTT__STATE_TOPIC_TEMPLATE: as923_2/gateway/{{ .GatewayID }}/state/{{ .StateType }}
+      INTEGRATION__MQTT__COMMAND_TOPIC_TEMPLATE: as923_2/gateway/{{ .GatewayID }}/command/#
+      INTEGRATION__MQTT__AUTH__GENERIC__SERVERS: tcp://mosquitto:1883
+      INTEGRATION__MQTT__AUTH__GENERIC__USERNAME: ${MQTT_BRIDGE_USERNAME}
+      INTEGRATION__MQTT__AUTH__GENERIC__PASSWORD: ${MQTT_BRIDGE_PASSWORD}
+    ports:
+      - "1700:1700/udp"
+    restart: unless-stopped
+
+  api:
+    <<: *backend
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]
+
+  ingest:
+    <<: *backend
+    command: ["python", "-m", "app.ingest.mqtt"]
+
+  worker:
+    <<: *backend
+    command: ["python", "-m", "app.worker.main"]
+
+  web:
+    build:
+      context: ..
+      dockerfile: infra/web.Dockerfile
+    environment:
+      DOMAIN: ${DOMAIN}
+      CHIRPSTACK_DOMAIN: ${CHIRPSTACK_DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+    depends_on: [api, chirpstack]
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:
+  caddydata:

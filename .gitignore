@@ -1,0 +1,30 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Frontend
+node_modules/
+frontend/dist/
+*.tsbuildinfo
+
+# Firmware
+firmware/.pio/
+firmware/include/secrets.h
+
+# Secrets (infra/dev.env is committed on purpose: dev-only values, clearly labelled)
+.env
+infra/.env
+infra/wa.env
+infra/secrets/
+infra/mosquitto/passwd
+infra/mosquitto/certs/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,71 @@
+# Local development / demo stack: database + API + worker + simulated sensors. No hardware.
+#   docker compose -f infra/docker-compose.dev.yml up --build
+#   cd frontend && npm run dev        -> http://localhost:5173
+# Demo logins: admin@demo.kampungadem.id / adem-demo-2026 (see docs/demo.md)
+
+name: kampungadem-dev
+
+x-backend: &backend
+  build: ../backend
+  env_file:
+    - dev.env
+    # Optional, gitignored: real WhatsApp test settings (see docs/demo.md). Missing = dry-run.
+    - path: wa.env
+      required: false
+  depends_on:
+    db:
+      condition: service_healthy
+
+services:
+  db:
+    image: timescale/timescaledb-ha:pg17
+    environment:
+      POSTGRES_USER: kampungadem
+      POSTGRES_PASSWORD: kampungadem
+      POSTGRES_DB: kampungadem
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata-dev:/home/postgres/pgdata/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U kampungadem"]
+      interval: 5s
+      retries: 20
+
+  api:
+    <<: *backend
+    restart: on-failure
+    command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')"]
+      interval: 5s
+      retries: 30
+
+  # One-shot: demo regions/nodes/users, then fast-forward the last 24 h of simulated data.
+  simulator-backfill:
+    <<: *backend
+    command: ["sh", "-c", "python -m app.sim seed && python -m app.sim backfill --hours 24"]
+    depends_on:
+      api:
+        condition: service_healthy
+
+  # Starts after the backfill so its health checks never see half-filled history.
+  worker:
+    <<: *backend
+    command: ["python", "-m", "app.worker.main"]
+    depends_on:
+      simulator-backfill:
+        condition: service_completed_successfully
+
+  # Keeps sending one simulated uplink per node every 10 minutes.
+  simulator:
+    <<: *backend
+    command: ["python", "-m", "app.sim", "live"]
+    depends_on:
+      simulator-backfill:
+        condition: service_completed_successfully
+
+volumes:
+  pgdata-dev:

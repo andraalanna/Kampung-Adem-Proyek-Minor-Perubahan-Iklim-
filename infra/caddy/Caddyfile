@@ -1,0 +1,25 @@
+{$DOMAIN} {
+	encode zstd gzip
+
+	handle /api/* {
+		reverse_proxy api:8000
+	}
+
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		X-Frame-Options DENY
+	}
+}
+
+# ChirpStack web UI (restrict access, e.g. by IP, before going live)
+{$CHIRPSTACK_DOMAIN} {
+	reverse_proxy chirpstack:8080
+}

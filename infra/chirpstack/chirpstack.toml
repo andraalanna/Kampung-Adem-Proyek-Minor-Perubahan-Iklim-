@@ -1,0 +1,30 @@
+# ChirpStack v4. Environment variables ($NAME) are substituted at start-up.
+# Only the Indonesian plan AS923-2 (920-923 MHz) is enabled. Never enable 433 MHz or US915.
+
+[logging]
+  level = "info"
+
+[postgresql]
+  dsn = "postgres://chirpstack:$CHIRPSTACK_DB_PASSWORD@db/chirpstack?sslmode=disable"
+  max_open_connections = 10
+
+[redis]
+  servers = ["redis://redis/0"]
+
+[network]
+  net_id = "000000"
+  enabled_regions = ["as923_2"]
+
+[api]
+  bind = "0.0.0.0:8080"
+  secret = "$CHIRPSTACK_API_SECRET"
+
+[integration]
+  enabled = ["mqtt"]
+
+  [integration.mqtt]
+    server = "tcp://mosquitto:1883/"
+    username = "chirpstack"
+    password = "$MQTT_CHIRPSTACK_PASSWORD"
+    json = true
+    event_topic = "application/{{application_id}}/device/{{dev_eui}}/event/{{event}}"

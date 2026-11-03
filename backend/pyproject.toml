@@ -1,0 +1,49 @@
+[project]
+name = "kampung-adem-backend"
+version = "0.1.0"
+description = "Kampung Adem backend: API, LoRaWAN ingest, and scheduled worker"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "sqlalchemy>=2.0",
+    "psycopg[binary]>=3.2",
+    "geoalchemy2>=0.15",
+    "alembic>=1.13",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "email-validator>=2.1",
+    "apscheduler>=3.10,<4",
+    "aiomqtt>=2.3",
+    "httpx>=0.27",
+    "cryptography>=42",
+    "argon2-cffi>=23.1",
+    "pyjwt>=2.8",
+    "redis>=5.0",
+]
+
+[project.optional-dependencies]
+satellite = ["earthengine-api>=1.0"]
+dev = ["pytest>=8", "ruff>=0.5"]
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["B008"]
+
+[tool.ruff.lint.per-file-ignores]
+"migrations/versions/*" = ["E501"]
